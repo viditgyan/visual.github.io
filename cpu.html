@@ -1,0 +1,747 @@
+<!--
+source: https://www.youtube.com/watch?v=25Qsa1Bq0Bs
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro CPU Architecture Explorer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #020617;
+            --glass: rgba(30, 41, 59, 0.7);
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.4);
+            --text: #f1f5f9;
+            --sub-text: #94a3b8;
+            --bus-addr: #facc15;
+            --bus-data: #34d399;
+            --bus-ctrl: #f87171;
+            --legacy: #78716c;
+        }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background-color: var(--bg);
+            background-image: radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            overflow-y: auto;
+            padding: 20px 0;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 30px;
+            width: 95vw;
+            max-width: 1600px;
+            padding: 20px;
+        }
+
+        .canvas {
+            position: relative;
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            min-height: 80vh;
+        }
+
+        svg { width: 95%; height: 95%; }
+
+        .node { cursor: pointer; transition: 0.3s ease; pointer-events: all; }
+        .node rect { fill: #1e293b; stroke: #334155; stroke-width: 2; transition: 0.3s; }
+        .node:hover > rect { stroke: var(--accent); filter: drop-shadow(0 0 8px var(--accent-glow)); }
+        .node.active > rect { fill: rgba(56, 189, 248, 0.1); stroke: var(--accent); stroke-width: 3; }
+
+        .internal { opacity: 0.4; transition: 0.3s; pointer-events: all; cursor: crosshair; }
+        .node:hover .internal { opacity: 1; }
+        .internal:hover rect { fill: var(--accent); stroke: white; }
+        .internal.active rect { fill: var(--accent); stroke: white; filter: brightness(1.2); }
+
+        .pipeline-stage { opacity: 0.6; transition: 0.3s; pointer-events: all; cursor: pointer; }
+        .pipeline-stage:hover rect { fill: var(--accent); stroke: white; }
+        .pipeline-stage.active rect { fill: var(--accent); stroke: white; filter: brightness(1.2); }
+        .node:hover .pipeline-stage { opacity: 1; }
+
+        .legacy-node rect { stroke: var(--legacy); stroke-dasharray: 4, 3; }
+        .legacy-node:hover > rect { stroke: var(--legacy); filter: drop-shadow(0 0 6px rgba(120,113,108,0.4)); }
+
+        .label { font-size: 11px; fill: var(--sub-text); font-weight: 500; pointer-events: none; }
+        .sub-label { font-size: 7.5px; fill: white; font-weight: 700; pointer-events: none; }
+        .bus-label { font-size: 7px; font-weight: 700; pointer-events: none; }
+        .conceptual-label { font-size: 5.5px; fill: var(--legacy); font-weight: 500; pointer-events: none; }
+
+        .data-stream {
+            fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0.2;
+            stroke-dasharray: 10, 10; animation: pulse 2s linear infinite;
+        }
+        .bus-addr { fill: none; stroke: var(--bus-addr); stroke-width: 2; opacity: 0.35; stroke-dasharray: 6, 4; animation: pulse 2.5s linear infinite; }
+        .bus-data { fill: none; stroke: var(--bus-data); stroke-width: 2; opacity: 0.35; stroke-dasharray: 6, 4; animation: pulse 2s linear infinite; }
+        .bus-ctrl { fill: none; stroke: var(--bus-ctrl); stroke-width: 2; opacity: 0.35; stroke-dasharray: 6, 4; animation: pulse 1.8s linear infinite; }
+
+        .pipeline-arrow { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: 0.5; marker-end: url(#arrowhead); }
+
+        @keyframes pulse { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: sticky;
+            top: 20px;
+        }
+        .side-panel::-webkit-scrollbar { width: 6px; }
+        .side-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+        .card {
+            background: var(--glass);
+            padding: 28px;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            animation: slideIn 0.4s ease-out;
+        }
+
+        .analogy-tag {
+            display: inline-block;
+            padding: 4px 12px;
+            background: var(--accent-glow);
+            color: var(--accent);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        h1 { font-size: 2rem; margin: 0; background: linear-gradient(to right, #fff, var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        p { line-height: 1.7; color: var(--sub-text); font-size: 14px; }
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+        .stat { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 12px; font-size: 12px; border: 1px solid rgba(255,255,255,0.05); }
+
+        .legend {
+            display: flex; gap: 16px; flex-wrap: wrap; padding: 12px 16px;
+            background: rgba(0,0,0,0.2); border-radius: 12px; font-size: 11px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .legend-dot { width: 10px; height: 3px; border-radius: 2px; }
+
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        @media (max-width: 900px) {
+            .dashboard { grid-template-columns: 1fr; }
+            .side-panel { position: static; max-height: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="dashboard">
+    <div class="canvas">
+        <svg viewBox="0 0 960 900">
+            <defs>
+                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="var(--accent)" opacity="0.6"/>
+                </marker>
+            </defs>
+
+            <!-- ===== SYSTEM BUS (background layer) ===== -->
+            <g class="node" id="ADDR_BUS">
+                <path class="bus-addr" d="M470 310 V360"/>
+                <text x="476" y="338" class="bus-label" fill="var(--bus-addr)">A</text>
+            </g>
+            <g class="node" id="DATA_BUS">
+                <path class="bus-data" d="M490 310 V360"/>
+                <text x="496" y="338" class="bus-label" fill="var(--bus-data)">D</text>
+            </g>
+            <g class="node" id="CTRL_BUS">
+                <path class="bus-ctrl" d="M510 310 V360"/>
+                <text x="516" y="338" class="bus-label" fill="var(--bus-ctrl)">C</text>
+            </g>
+
+            <!-- Bus: L2 to L3 -->
+            <path class="bus-data" d="M490 405 V435"/>
+            <path class="bus-addr" d="M470 405 V435"/>
+
+            <!-- Bus: L3 to Memory Controller -->
+            <path class="bus-data" d="M490 480 V520"/>
+            <path class="bus-addr" d="M470 480 V520"/>
+
+            <!-- Memory Controller to PCIe Root Complex -->
+            <path class="data-stream" d="M490 590 V620"/>
+
+            <!-- PCIe to GPU -->
+            <path class="data-stream" d="M380 650 H260"/>
+
+            <!-- PCIe to NPU -->
+            <path class="data-stream" d="M380 665 H260"/>
+
+            <!-- PCIe to RAM -->
+            <path class="data-stream" d="M600 555 H740"/>
+
+            <!-- PCIe to PCH -->
+            <path class="data-stream" d="M490 690 V720"/>
+
+            <!-- PCH to peripherals -->
+            <path class="data-stream" d="M410 790 V815"/>
+            <path class="data-stream" d="M490 790 V815"/>
+            <path class="data-stream" d="M570 790 V815"/>
+            <path class="data-stream" d="M330 790 V815"/>
+            <path class="data-stream" d="M650 790 V815"/>
+
+            <!-- ===== INSTRUCTION PIPELINE (top) ===== -->
+            <g class="node" id="PIPELINE">
+                <rect x="250" y="10" width="460" height="50" rx="12"/>
+                <text x="480" y="28" text-anchor="middle" class="label">INSTRUCTION PIPELINE</text>
+
+                <g class="node pipeline-stage" id="FETCH">
+                    <rect x="262" y="32" width="95" height="22" rx="4"/>
+                    <text x="309" y="47" text-anchor="middle" class="sub-label">FETCH</text>
+                </g>
+                <line class="pipeline-arrow" x1="357" y1="43" x2="372" y2="43"/>
+                <g class="node pipeline-stage" id="DECODE">
+                    <rect x="375" y="32" width="95" height="22" rx="4"/>
+                    <text x="422" y="47" text-anchor="middle" class="sub-label">DECODE</text>
+                </g>
+                <line class="pipeline-arrow" x1="470" y1="43" x2="485" y2="43"/>
+                <g class="node pipeline-stage" id="EXECUTE">
+                    <rect x="488" y="32" width="95" height="22" rx="4"/>
+                    <text x="535" y="47" text-anchor="middle" class="sub-label">EXECUTE</text>
+                </g>
+                <line class="pipeline-arrow" x1="583" y1="43" x2="598" y2="43"/>
+                <g class="node pipeline-stage" id="STORE">
+                    <rect x="601" y="32" width="95" height="22" rx="4"/>
+                    <text x="648" y="47" text-anchor="middle" class="sub-label">STORE</text>
+                </g>
+            </g>
+
+            <!-- ===== CPU CORE ===== -->
+            <g class="node" id="CPU">
+                <rect x="250" y="75" width="460" height="225" rx="20"/>
+                <text x="480" y="95" text-anchor="middle" class="label">CPU CORE</text>
+
+                <!-- Register Bank (2x3 grid: removed CIR, removed ACC) -->
+                <g class="node" id="REGISTERS">
+                    <rect x="265" y="105" width="130" height="180" rx="10"/>
+                    <text x="330" y="122" text-anchor="middle" class="label">REGISTER BANK</text>
+
+                    <g class="node internal" id="PC">
+                        <rect x="275" y="130" width="50" height="30" rx="4"/>
+                        <text x="300" y="150" text-anchor="middle" class="sub-label">PC</text>
+                    </g>
+                    <g class="node internal" id="IR">
+                        <rect x="335" y="130" width="50" height="30" rx="4"/>
+                        <text x="360" y="150" text-anchor="middle" class="sub-label">IR</text>
+                    </g>
+                    <g class="node internal" id="MAR">
+                        <rect x="275" y="168" width="50" height="30" rx="4"/>
+                        <text x="300" y="184" text-anchor="middle" class="sub-label">MAR</text>
+                        <text x="300" y="194" text-anchor="middle" class="conceptual-label">conceptual</text>
+                    </g>
+                    <g class="node internal" id="MDR">
+                        <rect x="335" y="168" width="50" height="30" rx="4"/>
+                        <text x="360" y="184" text-anchor="middle" class="sub-label">MDR</text>
+                        <text x="360" y="194" text-anchor="middle" class="conceptual-label">conceptual</text>
+                    </g>
+                    <g class="node internal" id="SP">
+                        <rect x="275" y="206" width="50" height="30" rx="4"/>
+                        <text x="300" y="226" text-anchor="middle" class="sub-label">SP</text>
+                    </g>
+                    <g class="node internal" id="FLAGS">
+                        <rect x="335" y="206" width="50" height="30" rx="4"/>
+                        <text x="360" y="226" text-anchor="middle" class="sub-label">FLAGS</text>
+                    </g>
+                    <g class="node internal" id="GPR">
+                        <rect x="275" y="244" width="110" height="30" rx="4"/>
+                        <text x="330" y="264" text-anchor="middle" class="sub-label">GPR (x16)</text>
+                    </g>
+                </g>
+
+                <!-- CU -->
+                <g class="node" id="CU">
+                    <rect x="410" y="105" width="105" height="35" rx="8"/>
+                    <text x="462" y="127" text-anchor="middle" class="label">CU</text>
+                </g>
+
+                <!-- ALU -->
+                <g class="node" id="ALU">
+                    <rect x="410" y="147" width="105" height="35" rx="8"/>
+                    <text x="462" y="169" text-anchor="middle" class="label">ALU</text>
+                </g>
+
+                <!-- FPU -->
+                <g class="node" id="FPU">
+                    <rect x="410" y="189" width="105" height="35" rx="8"/>
+                    <text x="462" y="211" text-anchor="middle" class="label">FPU</text>
+                </g>
+
+                <!-- BPU (Branch Prediction Unit) -->
+                <g class="node" id="BPU">
+                    <rect x="410" y="231" width="105" height="35" rx="8"/>
+                    <text x="462" y="253" text-anchor="middle" class="label">BPU</text>
+                </g>
+
+                <!-- PREFETCH (Hardware Prefetcher) -->
+                <g class="node" id="PREFETCH">
+                    <rect x="410" y="273" width="105" height="17" rx="5"/>
+                    <text x="462" y="285" text-anchor="middle" class="bus-label" fill="var(--sub-text)">PREFETCHER</text>
+                </g>
+
+                <!-- L1 Cache -->
+                <g class="node" id="L1">
+                    <rect x="530" y="105" width="96" height="52" rx="8"/>
+                    <text x="578" y="127" text-anchor="middle" class="label">L1</text>
+                    <text x="578" y="141" text-anchor="middle" class="label">CACHE</text>
+                </g>
+
+                <!-- Clock -->
+                <g class="node" id="CLOCK">
+                    <rect x="530" y="164" width="96" height="35" rx="8"/>
+                    <text x="578" y="186" text-anchor="middle" class="label">CLOCK</text>
+                </g>
+
+                <!-- MMU -->
+                <g class="node" id="MMU">
+                    <rect x="530" y="206" width="96" height="35" rx="8"/>
+                    <text x="578" y="228" text-anchor="middle" class="label">MMU</text>
+                </g>
+
+                <!-- Unused space filler for visual balance -->
+                <g class="node" id="ROB">
+                    <rect x="530" y="248" width="96" height="35" rx="8"/>
+                    <text x="578" y="270" text-anchor="middle" class="label">ROB</text>
+                </g>
+            </g>
+
+            <!-- ===== L2 CACHE ===== -->
+            <g class="node" id="L2">
+                <rect x="380" y="362" width="200" height="40" rx="10"/>
+                <text x="480" y="387" text-anchor="middle" class="label">L2 CACHE (per-core)</text>
+            </g>
+
+            <!-- ===== L3 CACHE ===== -->
+            <g class="node" id="L3">
+                <rect x="350" y="438" width="260" height="40" rx="10"/>
+                <text x="480" y="463" text-anchor="middle" class="label">L3 CACHE (shared)</text>
+            </g>
+
+            <!-- ===== MEMORY CONTROLLER (on-die, formerly Northbridge) ===== -->
+            <g class="node" id="MEMCTRL">
+                <rect x="370" y="520" width="220" height="65" rx="15"/>
+                <text x="480" y="549" text-anchor="middle" class="label">MEMORY CONTROLLER</text>
+                <text x="480" y="564" text-anchor="middle" class="bus-label" fill="var(--sub-text)">(on-die, formerly Northbridge)</text>
+            </g>
+
+            <!-- ===== PCIe ROOT COMPLEX ===== -->
+            <g class="node" id="PCIE">
+                <rect x="395" y="625" width="170" height="60" rx="12"/>
+                <text x="480" y="652" text-anchor="middle" class="label">PCIe ROOT COMPLEX</text>
+                <text x="480" y="667" text-anchor="middle" class="bus-label" fill="var(--sub-text)">Gen5 x16 / x4 / x1</text>
+            </g>
+
+            <!-- ===== GPU ===== -->
+            <g class="node" id="GPU">
+                <rect x="110" y="625" width="140" height="50" rx="12"/>
+                <text x="180" y="647" text-anchor="middle" class="label">GPU</text>
+                <text x="180" y="661" text-anchor="middle" class="bus-label" fill="var(--sub-text)">PCIe x16</text>
+            </g>
+
+            <!-- ===== NPU ===== -->
+            <g class="node" id="NPU">
+                <rect x="110" y="683" width="140" height="45" rx="12"/>
+                <text x="180" y="703" text-anchor="middle" class="label">NPU</text>
+                <text x="180" y="716" text-anchor="middle" class="bus-label" fill="var(--sub-text)">AI Accelerator</text>
+            </g>
+
+            <!-- ===== DRAM ===== -->
+            <g class="node" id="RAM">
+                <rect x="740" y="510" width="110" height="80" rx="10"/>
+                <text x="795" y="545" text-anchor="middle" class="label">DRAM</text>
+                <text x="795" y="560" text-anchor="middle" class="bus-label" fill="var(--sub-text)">DDR5</text>
+                <text x="795" y="575" text-anchor="middle" class="bus-label" fill="var(--sub-text)">Dual-Channel</text>
+            </g>
+
+            <!-- ===== PCH (Platform Controller Hub) ===== -->
+            <g class="node" id="PCH">
+                <rect x="380" y="725" width="200" height="60" rx="15"/>
+                <text x="480" y="752" text-anchor="middle" class="label">PCH</text>
+                <text x="480" y="767" text-anchor="middle" class="bus-label" fill="var(--sub-text)">(Platform Controller Hub)</text>
+            </g>
+
+            <!-- ===== STORAGE ===== -->
+            <g class="node" id="SSD">
+                <rect x="285" y="820" width="90" height="40" rx="6"/>
+                <text x="330" y="845" text-anchor="middle" class="label">SSD</text>
+            </g>
+            <g class="node legacy-node" id="HDD">
+                <rect x="445" y="820" width="90" height="40" rx="6"/>
+                <text x="490" y="840" text-anchor="middle" class="label">HDD</text>
+                <text x="490" y="852" text-anchor="middle" class="conceptual-label">legacy</text>
+            </g>
+
+            <!-- ===== I/O ===== -->
+            <g class="node" id="USB">
+                <rect x="365" y="820" width="90" height="40" rx="6"/>
+                <text x="410" y="845" text-anchor="middle" class="label">USB</text>
+            </g>
+            <g class="node" id="NIC">
+                <rect x="525" y="820" width="90" height="40" rx="6"/>
+                <text x="570" y="845" text-anchor="middle" class="label">NIC</text>
+            </g>
+
+            <!-- ===== UEFI FIRMWARE ===== -->
+            <g class="node" id="UEFI">
+                <rect x="605" y="820" width="90" height="40" rx="6"/>
+                <text x="650" y="840" text-anchor="middle" class="label">UEFI</text>
+                <text x="650" y="852" text-anchor="middle" class="bus-label" fill="var(--sub-text)">SPI Flash</text>
+            </g>
+
+            <!-- ===== BUS LEGEND ===== -->
+            <line x1="30" y1="880" x2="50" y2="880" stroke="var(--bus-addr)" stroke-width="2" stroke-dasharray="6,4"/>
+            <text x="55" y="884" class="bus-label" fill="var(--bus-addr)">Address Bus</text>
+            <line x1="130" y1="880" x2="150" y2="880" stroke="var(--bus-data)" stroke-width="2" stroke-dasharray="6,4"/>
+            <text x="155" y="884" class="bus-label" fill="var(--bus-data)">Data Bus</text>
+            <line x1="220" y1="880" x2="240" y2="880" stroke="var(--bus-ctrl)" stroke-width="2" stroke-dasharray="6,4"/>
+            <text x="245" y="884" class="bus-label" fill="var(--bus-ctrl)">Control Bus</text>
+            <line x1="320" y1="880" x2="340" y2="880" stroke="var(--accent)" stroke-width="2" stroke-dasharray="10,10" opacity="0.3"/>
+            <text x="345" y="884" class="bus-label" fill="var(--sub-text)">Data Stream</text>
+            <rect x="435" y="876" width="18" height="8" rx="2" fill="none" stroke="var(--legacy)" stroke-width="1.5" stroke-dasharray="4,3"/>
+            <text x="458" y="884" class="bus-label" fill="var(--legacy)">Legacy</text>
+        </svg>
+    </div>
+
+    <div class="side-panel">
+        <div class="card" id="info-card">
+            <h1>Hardware Matrix</h1>
+            <p>Explore the full CPU architecture. Click any component — from pipeline stages and registers to caches, buses, and peripherals — to see how each piece fits into the system.</p>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-dot" style="background:var(--bus-addr)"></div>Address Bus</div>
+                <div class="legend-item"><div class="legend-dot" style="background:var(--bus-data)"></div>Data Bus</div>
+                <div class="legend-item"><div class="legend-dot" style="background:var(--bus-ctrl)"></div>Control Bus</div>
+                <div class="legend-item"><div class="legend-dot" style="background:var(--legacy);border:1px dashed var(--legacy)"></div>Legacy</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const data = {
+        CPU: {
+            title: "The CPU Core",
+            tag: "The Brain",
+            analogy: "The entire workshop where all thinking and building happens.",
+            desc: "The Central Processing Unit is the primary silicon die that fetches, decodes, executes, and stores instructions. Modern CPUs contain billions of transistors organized into cores, each with its own pipeline, register file, and execution units. A single core typically runs at 3–5 GHz, executing multiple instructions per clock cycle via superscalar architecture.",
+            stats: ["Clock: 3–5 GHz", "Cores: 4–24+", "Transistors: ~10B", "Process: 3–7nm"]
+        },
+        PIPELINE: {
+            title: "Instruction Pipeline",
+            tag: "The Assembly Line",
+            analogy: "A factory line where each station handles one step of building a product simultaneously.",
+            desc: "The instruction pipeline breaks execution into stages so multiple instructions overlap. While one instruction is being executed, the next is being decoded, and another is being fetched. Modern CPUs have 14–20+ stage pipelines, with branch prediction and out-of-order execution to keep the pipeline full.",
+            stats: ["Stages: 14–20+", "IPC: 4–6", "Branch Pred: 97%+", "Superscalar: Yes"]
+        },
+        FETCH: {
+            title: "Fetch Stage",
+            tag: "Step 1",
+            analogy: "Reading the next line of the instruction manual from the bookshelf.",
+            desc: "The CPU reads the <b>Program Counter (PC)</b> to determine the memory address of the next instruction, then sends that address to the L1 instruction cache. The fetched instruction bytes are placed into the <b>Instruction Register (IR)</b>. The <b>Branch Prediction Unit</b> may speculatively redirect the fetch to a predicted target address to avoid pipeline stalls.",
+            stats: ["Reads: PC → L1i", "Width: 16–32 bytes", "Latency: 1 cycle", "Pred: Speculative"]
+        },
+        DECODE: {
+            title: "Decode Stage",
+            tag: "Step 2",
+            analogy: "Translating the blueprint shorthand into actionable steps your hands understand.",
+            desc: "The Control Unit examines the instruction opcode and operands. In CISC architectures (x86), complex instructions are broken into simpler <b>micro-ops (µops)</b>. The decoder identifies which execution unit is needed (ALU, FPU, load/store), reads source register addresses, and dispatches the operation to the reservation station for scheduling.",
+            stats: ["Input: IR bits", "Output: µops", "Decoders: 4–6", "CISC→RISC: Yes"]
+        },
+        EXECUTE: {
+            title: "Execute Stage",
+            tag: "Step 3",
+            analogy: "Actually hammering the nail, cutting the wood, or computing the math.",
+            desc: "The ALU, FPU, or other functional units carry out the operation: arithmetic (ADD, SUB, MUL), logic (AND, OR, XOR, shift), floating-point math, or memory address calculation. Results are written to a destination register. Out-of-order engines may execute instructions in a different order than fetched, as long as data dependencies are respected.",
+            stats: ["Units: ALU, FPU, AGU", "Width: 256–512 bit", "OoO: Yes", "Latency: 1–5 cyc"]
+        },
+        STORE: {
+            title: "Store / Write-Back",
+            tag: "Step 4",
+            analogy: "Putting the finished product back on the shelf or handing it to the next station.",
+            desc: "The result of the execution is written back to the destination register in the register file, or committed to memory via the <b>store buffer → L1 data cache → DRAM</b> path. The <b>reorder buffer (ROB)</b> ensures instructions retire in program order even if they executed out of order, maintaining architectural correctness.",
+            stats: ["Target: Reg / L1d", "ROB: 256–512", "Store Buffer: 72+", "Commit: In-Order"]
+        },
+        REGISTERS: {
+            title: "Register Bank",
+            tag: "Hand Tools",
+            analogy: "The toolbelt strapped right to your waist — the fastest storage you can reach.",
+            desc: "A file of ultra-fast storage cells built from flip-flops, located inside the CPU core. Registers hold the data the CPU is <b>actively</b> working with. Access time is under 1 nanosecond — roughly 100× faster than L1 cache. A modern x86-64 CPU has 16 general-purpose registers (64-bit each), plus many special-purpose and renamed physical registers (up to 300+).",
+            stats: ["Latency: ~0.3 ns", "Type: Flip-Flops", "GP Regs: 16 (arch)", "Phys Regs: 300+"]
+        },
+        PC: {
+            title: "Program Counter (PC)",
+            tag: "Instruction Pointer",
+            analogy: "Your finger tracing the current line you're reading in a manual.",
+            desc: "A special-purpose register (called <b>RIP</b> in x86-64) that always holds the memory address of the <b>next</b> instruction to fetch. After each fetch, the PC increments by the instruction length. Branch and jump instructions override the PC with a new target address. The branch predictor may speculatively update the PC before the branch is resolved.",
+            stats: ["Role: Sequencer", "Size: 64-bit", "Alias: RIP (x86)", "Update: Every cycle"]
+        },
+        IR: {
+            title: "Instruction Register (IR)",
+            tag: "The Clipboard",
+            analogy: "The clipboard holding the current blueprint step you're actively reading.",
+            desc: "Holds the raw instruction bytes that were just fetched from memory. The Control Unit reads the IR to determine the opcode (what operation) and operands (what data). In pipelined CPUs, each pipeline stage has its own latch holding the instruction for that stage, so the IR is conceptually replicated across the pipeline.",
+            stats: ["Role: Hold Instr", "Size: 32–128 bit", "Source: L1i Cache", "Consumer: Decoder"]
+        },
+        MAR: {
+            title: "Memory Address Register",
+            tag: "Von Neumann Concept",
+            analogy: "Writing down the warehouse aisle number before walking in to grab a part.",
+            desc: "<b>Conceptual register</b> from the Von Neumann architecture model. In textbooks, the MAR holds the memory address from which data will be read or to which data will be written. In <b>modern CPUs</b>, there is no discrete MAR — this function is handled internally by the <b>load/store units</b>, <b>cache controllers</b>, and the <b>memory controller's</b> address queues. Shown here for educational reference.",
+            stats: ["Status: Conceptual", "Modern: Load/Store Unit", "Width: 64-bit", "Model: Von Neumann"]
+        },
+        MDR: {
+            title: "Memory Data Register",
+            tag: "Von Neumann Concept",
+            analogy: "The temporary tray holding the item you just pulled off the shelf — or about to put back.",
+            desc: "<b>Conceptual register</b> from the Von Neumann architecture model. In textbooks, the MDR is a bidirectional buffer between the CPU and the data bus. In <b>modern CPUs</b>, there is no discrete MDR — this function is handled by <b>fill buffers</b>, <b>line fill buffers (LFB)</b>, and the <b>store buffer</b> within the cache subsystem. Shown here for educational reference.",
+            stats: ["Status: Conceptual", "Modern: Fill Buffers", "Width: 64-bit", "Model: Von Neumann"]
+        },
+        SP: {
+            title: "Stack Pointer (SP)",
+            tag: "Bookmark Stack",
+            analogy: "A bookmark that always points to the top of your stack of papers.",
+            desc: "Points to the current top of the call stack in memory. Updated automatically by <b>PUSH</b>, <b>POP</b>, <b>CALL</b>, and <b>RET</b> instructions. The stack stores return addresses, local variables, and function arguments. In x86-64, the register is <b>RSP</b> and the stack grows downward (toward lower addresses).",
+            stats: ["Alias: RSP (x86)", "Direction: Grows ↓", "Auto-update: Yes", "Size: 64-bit"]
+        },
+        FLAGS: {
+            title: "Flags / Status Register",
+            tag: "Dashboard Lights",
+            analogy: "Warning lights on a car dashboard — each light tells you one specific condition.",
+            desc: "A register where each bit represents the outcome of the last ALU operation. Key flags: <b>ZF</b> (result is zero), <b>CF</b> (carry/borrow), <b>SF</b> (sign/negative), <b>OF</b> (overflow). Conditional branches (JZ, JNZ, JC) read these flags to decide whether to jump. In x86-64 this is the <b>RFLAGS</b> register.",
+            stats: ["Key: ZF, CF, SF, OF", "Alias: RFLAGS", "Width: 64-bit", "Set by: ALU ops"]
+        },
+        GPR: {
+            title: "General Purpose Regs",
+            tag: "Workbenches",
+            analogy: "Multiple identical workbenches — use whichever one is free.",
+            desc: "x86-64 provides 16 general-purpose 64-bit registers: <b>RAX, RBX, RCX, RDX, RSI, RDI, RBP, RSP, R8–R15</b>. The compiler assigns variables to these registers for fast access. Register renaming (via the <b>RAT</b>) maps architectural registers to a larger pool of physical registers to eliminate false dependencies and enable out-of-order execution. <b>RAX</b> historically descends from the 8-bit Accumulator (ACC) of the 8080/8086 era, and some instructions (MUL, DIV, string ops) still implicitly use it — but in modern x86-64 it is simply one of 16 equal GPRs, not a special accumulator.",
+            stats: ["Count: 16 (arch)", "Width: 64-bit", "Renamed: 300+ phys", "Legacy: RAX = old ACC"]
+        },
+        CU: {
+            title: "Control Unit (CU)",
+            tag: "The Conductor",
+            analogy: "The orchestra conductor — doesn't play an instrument but tells everyone when and what to play.",
+            desc: "Decodes instructions and generates <b>control signals</b> that orchestrate every other component: which registers to read, what ALU operation to perform, when to write back. Implementations range from <b>hardwired</b> (fast, fixed logic gates) to <b>microprogrammed</b> (flexible, uses microcode ROM). Modern x86 CPUs use microcode for complex instructions and hardwired paths for simple ones.",
+            stats: ["Type: Hybrid", "Microcode: Yes", "Clock: Distributes", "Signals: ~100+"]
+        },
+        ALU: {
+            title: "Arithmetic Logic Unit",
+            tag: "The Calculator",
+            analogy: "The heavy-duty calculator bolted to your desk — handles all the number crunching.",
+            desc: "Performs <b>integer arithmetic</b> (ADD, SUB, MUL, DIV), <b>bitwise logic</b> (AND, OR, XOR, NOT), and <b>shifts/rotates</b>. Modern CPUs have multiple ALUs per core to execute several integer operations in parallel each cycle. Results are written to the destination register and the <b>FLAGS</b> register is updated.",
+            stats: ["Ops: +, -, ×, ÷", "Logic: AND/OR/XOR", "Per Core: 3–4 ALUs", "Width: 64-bit"]
+        },
+        FPU: {
+            title: "Floating Point Unit",
+            tag: "The Precision Lab",
+            analogy: "A specialized precision lab for measurements that need decimal places.",
+            desc: "Handles <b>IEEE 754</b> floating-point arithmetic (addition, multiplication, division, square root) on 32-bit (float) and 64-bit (double) operands. Modern FPUs also execute <b>SIMD</b> vector instructions (SSE, AVX-256, AVX-512) that process multiple data elements in a single operation — critical for scientific computing, graphics, and machine learning.",
+            stats: ["Standards: IEEE 754", "SIMD: AVX-512", "Width: 512-bit", "Precision: FP32/64"]
+        },
+        BPU: {
+            title: "Branch Prediction Unit",
+            tag: "The Fortune Teller",
+            analogy: "A fortune teller who guesses which path you'll take next — and is right 97% of the time.",
+            desc: "Predicts the outcome of conditional branches <b>before</b> they are resolved by the ALU, allowing the pipeline to speculatively fetch and execute instructions down the predicted path. Modern predictors use <b>TAGE</b> (TAgged GEometric) algorithms that combine multiple history lengths. A misprediction costs ~15–20 cycles (the pipeline must be flushed). The BPU also includes a <b>BTB (Branch Target Buffer)</b> to cache jump destinations and a <b>RAS (Return Address Stack)</b> for function returns.",
+            stats: ["Accuracy: 97%+", "Penalty: 15–20 cyc", "BTB: 4K–8K entries", "Type: TAGE hybrid"]
+        },
+        PREFETCH: {
+            title: "Hardware Prefetcher",
+            tag: "The Scout",
+            analogy: "A scout who runs ahead to fetch supplies you'll need before you even ask.",
+            desc: "Monitors memory access patterns and proactively loads data into caches <b>before the CPU requests it</b>. The <b>L1 stride prefetcher</b> detects regular access patterns (e.g., iterating an array). The <b>L2 stream prefetcher</b> tracks sequential streams. This hides DRAM latency (~70 ns) by overlapping data fetch with computation. Prefetching can be counterproductive if patterns are irregular (cache pollution).",
+            stats: ["L1: Stride detect", "L2: Stream detect", "Hides: ~70ns latency", "Risk: Cache pollution"]
+        },
+        ROB: {
+            title: "Reorder Buffer (ROB)",
+            tag: "The Timekeeper",
+            analogy: "A ledger that records which jobs were started out of order, ensuring they're checked off in the original order.",
+            desc: "A circular buffer that tracks all in-flight instructions from dispatch to retirement. Even though the CPU executes instructions <b>out of order</b> for performance, the ROB ensures they <b>retire in program order</b> — maintaining correct architectural state. If a branch misprediction or exception occurs, the ROB enables precise rollback by discarding all speculative entries. Modern ROBs hold 256–512+ entries.",
+            stats: ["Entries: 256–512+", "Purpose: In-order retire", "Rollback: Precise", "OoO: Enables it"]
+        },
+        L1: {
+            title: "L1 Cache",
+            tag: "Pocket Notebook",
+            analogy: "The tiny notepad in your shirt pocket — almost instant to glance at, but holds very little.",
+            desc: "The smallest and fastest cache, split into <b>L1i</b> (instructions) and <b>L1d</b> (data), typically 32–64 KB each. Operates at CPU clock speed with a <b>~1 ns / 4-cycle</b> latency. Uses SRAM (6-transistor cells). The L1 hit rate is typically 95%+, meaning most memory accesses never leave the core.",
+            stats: ["Latency: ~1 ns", "Size: 32–64 KB ea.", "Split: L1i + L1d", "Hit Rate: ~95%"]
+        },
+        CLOCK: {
+            title: "Clock Generator",
+            tag: "The Heartbeat",
+            analogy: "A metronome ticking billions of times per second, keeping every musician in sync.",
+            desc: "A crystal oscillator (typically 100 MHz base) multiplied by the CPU's <b>PLL (Phase-Locked Loop)</b> to reach the operating frequency (e.g., 5 GHz = 5 billion ticks/second). Every pipeline stage advances on a clock edge. Higher clocks mean faster sequential execution, but also more heat. Modern CPUs dynamically adjust clock speed via <b>Turbo Boost / Precision Boost</b>.",
+            stats: ["Base: 100 MHz xtal", "Boost: up to 5+ GHz", "Dynamic: Turbo/PBO", "1 tick @ 5GHz: 0.2ns"]
+        },
+        MMU: {
+            title: "Memory Management Unit",
+            tag: "The Translator",
+            analogy: "A translator who converts your room numbers into actual warehouse aisle locations.",
+            desc: "Translates <b>virtual addresses</b> (used by programs) into <b>physical addresses</b> (used by hardware) via page tables. Contains the <b>TLB (Translation Lookaside Buffer)</b>, a cache of recent address translations. The MMU enforces memory protection — preventing one process from accessing another's memory — and enables features like demand paging and memory-mapped I/O.",
+            stats: ["TLB: 1024+ entries", "Page Size: 4KB/2MB", "Levels: 4–5 (x86)", "Protection: Yes"]
+        },
+        L2: {
+            title: "L2 Cache",
+            tag: "Desk Drawer",
+            analogy: "The drawer under your desk — a bit slower to open than your pocket, but holds much more.",
+            desc: "A unified (instructions + data) per-core cache, typically <b>256 KB – 2 MB</b>. Latency is around <b>3–5 ns / 12 cycles</b>. Sits between L1 and L3 in the hierarchy. When L1 misses, the request goes to L2. L2 is inclusive or exclusive of L1 depending on architecture. Built with SRAM, wider cache lines (64 bytes).",
+            stats: ["Latency: ~4 ns", "Size: 256KB–2MB", "Per-Core: Yes", "Line: 64 bytes"]
+        },
+        L3: {
+            title: "L3 Cache (LLC)",
+            tag: "Filing Cabinet",
+            analogy: "The big filing cabinet in the corner — shared by everyone in the office.",
+            desc: "A large <b>shared</b> cache (Last Level Cache) accessible by all cores, typically <b>8–96 MB</b>. Latency is ~<b>10–15 ns / 40 cycles</b>. Reduces expensive trips to DRAM. The L3 also handles <b>cache coherence</b> between cores (MOESI/MESIF protocol) — ensuring all cores see a consistent view of memory. Critical for multi-threaded performance.",
+            stats: ["Latency: ~12 ns", "Size: 8–96 MB", "Shared: All Cores", "Coherence: MESIF"]
+        },
+        ADDR_BUS: {
+            title: "Address Bus",
+            tag: "Street Signs",
+            analogy: "The street signs that tell the delivery truck exactly which house to go to.",
+            desc: "A set of parallel wires carrying the <b>memory address</b> from the CPU to RAM or I/O devices. The width determines the maximum addressable memory: a 64-bit address bus can theoretically address 16 exabytes, though current CPUs use 48–57 bits (256 TB – 128 PB). The address bus is <b>unidirectional</b> — CPU → memory.",
+            stats: ["Direction: CPU → Mem", "Width: 48–57 bits", "Max: 128 PB", "Type: Parallel"]
+        },
+        DATA_BUS: {
+            title: "Data Bus",
+            tag: "The Highway",
+            analogy: "A multi-lane highway where data trucks travel in both directions.",
+            desc: "Carries the actual data between the CPU, memory, and I/O devices. It is <b>bidirectional</b> — data flows to memory on writes and from memory on reads. The width (64-bit on modern CPUs) determines how many bits transfer per cycle. The data bus connects through the memory controller to DRAM channels.",
+            stats: ["Direction: Bi-dir", "Width: 64-bit", "Channels: Dual+", "Type: Parallel"]
+        },
+        CTRL_BUS: {
+            title: "Control Bus",
+            tag: "Traffic Signals",
+            analogy: "Traffic lights and signs that coordinate who goes when on the highway.",
+            desc: "Carries <b>control signals</b> that coordinate all system activity: Read/Write enable, interrupt requests (IRQ), bus request/grant, clock signal, and reset. Without the control bus, the CPU wouldn't know whether to read or write, and devices couldn't request attention. Signals are a mix of unidirectional and bidirectional lines.",
+            stats: ["Signals: R/W, IRQ", "Clock: Distributed", "Direction: Mixed", "Arbitration: Yes"]
+        },
+        MEMCTRL: {
+            title: "Memory Controller",
+            tag: "The Dispatcher",
+            analogy: "The dispatcher who decides which warehouse lane to send each order down for fastest retrieval.",
+            desc: "Manages all communication between the CPU and <b>DRAM</b>. Since Intel Nehalem (2008) and AMD's K8, the memory controller is <b>integrated directly onto the CPU die</b> — eliminating the old Northbridge chip and dramatically reducing memory latency. It handles DDR5 command/address signaling, channel interleaving, refresh scheduling, and ECC (if supported). Dual- or quad-channel configurations multiply bandwidth.",
+            stats: ["Location: On-die", "Channels: Dual/Quad", "DDR5: 4800–8000 MT/s", "Legacy: Northbridge"]
+        },
+        PCIE: {
+            title: "PCIe Root Complex",
+            tag: "The Highway Hub",
+            analogy: "The central highway interchange that connects all the express lanes to different destinations.",
+            desc: "The <b>root complex</b> originates all PCIe transactions from the CPU. It provides high-speed <b>point-to-point serial links</b> to the GPU (x16), NVMe SSDs (x4), NPU, and the PCH (x4/x8). PCIe Gen5 delivers <b>~64 GB/s per x16 link</b>. Each lane is a pair of differential signal pairs (TX/RX), and lanes are grouped into x1, x4, x8, or x16 links. The root complex is integrated on the CPU die in modern systems.",
+            stats: ["Gen5: 32 GT/s/lane", "x16: ~64 GB/s", "On-die: Yes", "Links: x1/x4/x8/x16"]
+        },
+        GPU: {
+            title: "Graphics Processing Unit",
+            tag: "The Army of Workers",
+            analogy: "Thousands of simple workers who each do one small task, but all work simultaneously.",
+            desc: "A massively parallel processor optimized for <b>throughput</b> over latency. Contains thousands of small cores (CUDA cores / Stream Processors) that excel at matrix math, pixel shading, and data-parallel workloads. Connected via <b>PCIe x16</b> (up to 64 GB/s). Also used for general-purpose computing (GPGPU) in AI training, scientific simulation, and video encoding.",
+            stats: ["Cores: 1000–16000+", "Bus: PCIe x16", "VRAM: 8–24 GB", "Use: Graphics/AI"]
+        },
+        NPU: {
+            title: "Neural Processing Unit",
+            tag: "The AI Brain",
+            analogy: "A specialized department that only handles pattern recognition and prediction tasks with extreme efficiency.",
+            desc: "A dedicated <b>AI accelerator</b> integrated into modern SoCs (Apple M-series, Intel Meteor Lake, AMD Ryzen AI, Qualcomm Snapdragon X). Optimized for <b>low-precision matrix math</b> (INT8, FP16) used in neural network inference — image recognition, natural language processing, background blur, noise cancellation. Much more power-efficient than running the same workloads on the CPU or GPU. Measured in <b>TOPS</b> (Tera Operations Per Second).",
+            stats: ["Perf: 10–45+ TOPS", "Precision: INT8/FP16", "Power: Very efficient", "Use: AI inference"]
+        },
+        RAM: {
+            title: "DRAM (Main Memory)",
+            tag: "The Warehouse",
+            analogy: "The large warehouse across the yard — holds everything for the current job, but takes time to walk there.",
+            desc: "Dynamic RAM stores data in <b>capacitors</b> (1 transistor + 1 capacitor per bit) that must be <b>refreshed</b> thousands of times per second to retain data. Modern DDR5 runs at 4800–8000+ MT/s with dual-channel configurations delivering 50–100+ GB/s bandwidth. Latency is ~<b>60–100 ns</b> from the CPU's perspective. Volatile — loses data on power off.",
+            stats: ["Latency: ~70 ns", "Type: DDR5", "Bandwidth: 50+ GB/s", "Volatile: Yes"]
+        },
+        PCH: {
+            title: "PCH (Platform Controller Hub)",
+            tag: "The Service Desk",
+            analogy: "The service desk that routes all the slower, everyday requests — mail, printing, deliveries.",
+            desc: "The modern replacement for the legacy Southbridge chip. A single chip (Intel <b>PCH</b>, AMD <b>FCH</b>) that manages all <b>lower-bandwidth I/O</b>: SATA storage, USB ports, audio (HD Audio), Ethernet, Wi-Fi, and legacy interfaces. Connected to the CPU via <b>DMI 4.0</b> (~8 GB/s). Also hosts the <b>DMA controller</b>, <b>interrupt controller (APIC)</b>, real-time clock, and the <b>SPI interface</b> to UEFI firmware flash.",
+            stats: ["Link: DMI 4.0", "Bandwidth: ~8 GB/s", "Ports: USB/SATA/Audio", "Intel: PCH / AMD: FCH"]
+        },
+        SSD: {
+            title: "Solid State Drive",
+            tag: "Speed Warehouse",
+            analogy: "A modern automated warehouse with robotic retrievers — no moving parts, very fast.",
+            desc: "Uses <b>NAND flash</b> memory with no mechanical parts. NVMe SSDs connect directly via <b>PCIe x4</b> (bypassing SATA entirely), reaching 7–14+ GB/s sequential reads on Gen5. Random 4K IOPS reach 1,000,000+. An internal <b>FTL (Flash Translation Layer)</b> controller manages wear leveling, garbage collection, and logical-to-physical address mapping. Non-volatile.",
+            stats: ["Seq Read: 7–14 GB/s", "IOPS: 1M+", "Interface: NVMe/PCIe", "Endurance: TBW rated"]
+        },
+        HDD: {
+            title: "Hard Disk Drive (Legacy)",
+            tag: "Legacy Storage",
+            analogy: "A traditional warehouse with human workers walking aisles — reliable but slow.",
+            desc: "Uses spinning magnetic <b>platters</b> (5400–7200 RPM) with a mechanical read/write <b>head</b> on an actuator arm. Sequential speeds reach ~200 MB/s, but random access is limited by <b>seek time</b> (~5–10 ms) and rotational latency. <b>Largely replaced by SSDs</b> in consumer systems due to the massive speed gap. Still used in data centers and NAS for cost-effective bulk storage at ~$15/TB. Connected via SATA III (6 Gbps).",
+            stats: ["Seq: ~200 MB/s", "Seek: 5–10 ms", "Status: Legacy", "Use: Bulk/NAS only"]
+        },
+        USB: {
+            title: "USB Controller",
+            tag: "Universal Plug",
+            analogy: "A universal adapter that lets you plug almost anything into your workshop.",
+            desc: "Manages all USB-connected peripherals: keyboards, mice, storage, webcams, and more. <b>USB 3.2 Gen 2</b> delivers 10 Gbps; <b>USB4</b> reaches 40 Gbps (based on Thunderbolt 3). The controller handles device enumeration, power delivery (up to 240W with USB PD 3.1), and protocol translation between the device and system bus.",
+            stats: ["USB 3.2: 10 Gbps", "USB4: 40 Gbps", "Power: 240W PD", "Hot-plug: Yes"]
+        },
+        NIC: {
+            title: "Network Interface Card",
+            tag: "The Mailroom",
+            analogy: "The mailroom that sends and receives packages to the outside world.",
+            desc: "Handles Ethernet or Wi-Fi connectivity. Converts data between the system bus and network packets (frames). Modern NICs offload work from the CPU: <b>TCP checksum offload</b>, <b>RSS (Receive Side Scaling)</b>, and <b>SR-IOV</b> for virtualization. Typical speeds: 1 GbE, 2.5 GbE, or 10 GbE for wired; Wi-Fi 6E/7 for wireless.",
+            stats: ["Wired: 1–10 GbE", "Wi-Fi: 6E / 7", "Offload: TCP/RSS", "SR-IOV: Yes"]
+        },
+        UEFI: {
+            title: "UEFI Firmware",
+            tag: "The Boot Script",
+            analogy: "The startup checklist taped to the wall that tells you exactly how to open the workshop each morning.",
+            desc: "<b>Unified Extensible Firmware Interface</b> — the modern replacement for legacy BIOS. Stored in <b>SPI flash</b> connected to the PCH. UEFI initializes all hardware (CPU, RAM, PCIe, USB) before the OS loads. It provides the <b>POST (Power-On Self-Test)</b>, memory training, Secure Boot (verifying OS signatures), and a pre-boot environment with drivers, network stack, and a graphical setup UI. Runs in a flat 64-bit address space, unlike legacy BIOS's 16-bit real mode.",
+            stats: ["Replaces: Legacy BIOS", "Storage: SPI Flash", "Secure Boot: Yes", "Mode: 64-bit native"]
+        }
+    };
+
+    const infoCard = document.getElementById('info-card');
+
+    document.querySelectorAll('.node').forEach(node => {
+        node.addEventListener('click', (e) => {
+            e.stopPropagation();
+
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+            node.classList.add('active');
+
+            const item = data[node.id];
+            if (!item) return;
+
+            infoCard.style.animation = 'none';
+            infoCard.offsetHeight;
+            infoCard.style.animation = null;
+
+            infoCard.innerHTML = `
+                <div class="analogy-tag">${item.tag}</div>
+                <h1>${item.title}</h1>
+                <p style="color:var(--accent); font-style:italic;">"${item.analogy}"</p>
+                <p>${item.desc}</p>
+                <div class="stat-grid">
+                    ${item.stats.map(s => `<div class="stat">${s}</div>`).join('')}
+                </div>
+            `;
+        });
+    });
+</script>
+</body>
+</html>
